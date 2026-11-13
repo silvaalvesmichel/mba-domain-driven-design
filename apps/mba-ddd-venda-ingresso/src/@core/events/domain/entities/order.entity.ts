@@ -65,8 +65,11 @@ export class Order extends AggregateRoot {
   }
 
   cancel() {
+    if (this.status === OrderStatus.CANCELLED) {
+      throw new Error('Order already cancelled');
+    }
     this.status = OrderStatus.CANCELLED;
-    this.addEvent(new OrderCancelled(this.id, this.status));
+    this.addEvent(new OrderCancelled(this.id, this.status, this.event_spot_id));
   }
 
   toJSON() {
@@ -75,6 +78,7 @@ export class Order extends AggregateRoot {
       amount: this.amount,
       customer_id: this.customer_id.value,
       event_spot_id: this.event_spot_id.value,
+      status: OrderStatus[this.status],
     };
   }
 }

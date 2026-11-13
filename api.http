@@ -100,3 +100,43 @@ Content-Type: application/json
     "spot_id": "96298e63-5a38-4352-b97d-322259f10921",
     "card_token": "tok_visa"
 }
+
+###
+# Lista de espera de ingressos
+# Roteiro: parceiro -> clientes A e B -> evento -> seção com total_spots 1 -> publish-all
+# -> cliente A compra o lugar -> cliente B entra na fila -> cancelar o pedido do cliente A
+
+###
+POST http://localhost:3000/customers
+Content-Type: application/json
+
+{
+    "name": "Customer B",
+    "cpf": "703.758.870-91"
+}
+
+###
+@customer_b_id = 5c2b5a0e-6a0e-4b62-9f0c-3a4f6b0d7e11
+
+###
+@order_id = 0d0e6d0c-52a1-4f43-8a52-0c6e3c1f6a22
+
+### Cliente B entra na lista de espera da seção esgotada
+POST http://localhost:3000/events/{{event_id}}/sections/{{section_id}}/waiting-list
+Content-Type: application/json
+
+{
+    "customer_id": "{{customer_b_id}}"
+}
+
+### Entradas da fila em ordem de chegada
+GET http://localhost:3000/events/{{event_id}}/sections/{{section_id}}/waiting-list
+
+### Cancela o pedido do cliente A: o lugar é liberado e o cliente B é notificado
+POST http://localhost:3000/events/{{event_id}}/orders/{{order_id}}/cancel
+
+### O lugar volta a ficar disponível
+GET http://localhost:3000/events/{{event_id}}/sections/{{section_id}}/spots
+
+### A entrada do cliente B passa para NOTIFIED
+GET http://localhost:3000/events/{{event_id}}/sections/{{section_id}}/waiting-list

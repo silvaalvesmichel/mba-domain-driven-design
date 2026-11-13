@@ -1,3 +1,4 @@
+import { ApplicationService } from '../../common/application/application.service';
 import { IUnitOfWork } from '../../common/application/unit-of-work.interface';
 import { EventSectionId } from '../domain/entities/event-section';
 import { EventSpotId } from '../domain/entities/event-spot';
@@ -17,6 +18,7 @@ export class OrderService {
     private spotReservationRepo: ISpotReservationRepository,
     private uow: IUnitOfWork,
     private paymentGateway: PaymentGateway,
+    private applicationService: ApplicationService,
   ) {}
 
   list() {
@@ -99,6 +101,21 @@ export class OrderService {
         await this.uow.commit();
         throw new Error('Aconteceu um erro reservar o seu lugar');
       }
+    });
+  }
+
+  async cancel(input: { order_id: string }) {
+    return this.applicationService.run(async () => {
+      const order = await this.orderRepo.findById(input.order_id);
+
+      if (!order) {
+        throw new Error('Order not found');
+      }
+
+      order.cancel();
+
+      await this.orderRepo.add(order);
+      return order;
     });
   }
 }

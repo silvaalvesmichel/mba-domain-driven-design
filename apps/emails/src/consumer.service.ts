@@ -17,4 +17,29 @@ export class ConsumerService {
     // }
     console.log('ConsumerService.handle', msg);
   }
+
+  @RabbitSubscribe({
+    exchange: 'amq.direct',
+    routingKey: 'SpotOfferedToWaitingCustomerIntegrationEvent',
+    queue: 'emails-spot-offered-to-waiting-customer',
+  })
+  handleSpotOfferedToWaitingCustomer(msg: {
+    event_name: string;
+    payload: {
+      customer_id: string;
+      event_id: string;
+      section_id: string;
+      spot_id: string;
+    };
+    [key: string]: any;
+  }) {
+    console.log('ConsumerService.handleSpotOfferedToWaitingCustomer', {
+      event_name: msg.event_name,
+      customer_id: msg.payload.customer_id,
+      event_id: msg.payload.event_id,
+      section_id: msg.payload.section_id,
+      spot_id: msg.payload.spot_id,
+      occurred_on: msg.occurred_on,
+    });
+  }
 }

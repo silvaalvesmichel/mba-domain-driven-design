@@ -8,6 +8,8 @@ import {
   OrderSchema,
   PartnerSchema,
   SpotReservationSchema,
+  WaitingListEntrySchema,
+  WaitingListSchema,
 } from '../@core/events/infra/db/schemas';
 import { PartnerMysqlRepository } from '../@core/events/infra/db/repositories/partner-mysql.repository';
 import { EntityManager } from '@mikro-orm/mysql';
@@ -37,6 +39,13 @@ import { BullModule, InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { IIntegrationEvent } from '../@core/common/domain/integration-event';
 import { PartnerCreatedIntegrationEvent } from '../@core/events/domain/events/integration-events/partner-created.int-events';
+import { WaitingListMysqlRepository } from '../@core/events/infra/db/repositories/waiting-list-mysql.repository';
+import { WaitingListService } from '../@core/events/application/waiting-list.service';
+import { WaitingListController } from './waiting-list/waiting-list.controller';
+import { ReleaseSpotHandler } from '../@core/events/application/handlers/release-spot.handler';
+import { NotifyWaitingListHandler } from '../@core/events/application/handlers/notify-waiting-list.handler';
+import { SpotOfferedToWaitingCustomer } from '../@core/events/domain/events/domain-events/spot-offered-to-waiting-customer.event';
+import { SpotOfferedToWaitingCustomerIntegrationEvent } from '../@core/events/domain/events/integration-events/spot-offered-to-waiting-customer.int-events';
 
 @Module({
   imports: [
@@ -48,6 +57,8 @@ import { PartnerCreatedIntegrationEvent } from '../@core/events/domain/events/in
       EventSpotSchema,
       OrderSchema,
       SpotReservationSchema,
+      WaitingListSchema,
+      WaitingListEntrySchema,
     ]),
     ApplicationModule,
     BullModule.registerQueue({
@@ -81,6 +92,11 @@ import { PartnerCreatedIntegrationEvent } from '../@core/events/domain/events/in
       inject: [EntityManager],
     },
     {
+      provide: 'IWaitingListRepository',
+      useFactory: (em: EntityManager) => new WaitingListMysqlRepository(em),
+      inject: [EntityManager],
+    },
+    {
       provide: PartnerService,
       useFactory: (
         partnerRepo: IPartnerRepository,
@@ -109,6 +125,7 @@ import { PartnerCreatedIntegrationEvent } from '../@core/events/domain/events/in
         spotReservationRepo,
         uow,
         paymentGateway,
+        appService,
       ) =>
         new OrderService(
           orderRepo,
@@ -117,6 +134,7 @@ import { PartnerCreatedIntegrationEvent } from '../@core/events/domain/events/in
           spotReservationRepo,
           uow,
           paymentGateway,
+          appService,
         ),
       inject: [
         'IOrderRepository',
@@ -125,6 +143,23 @@ import { PartnerCreatedIntegrationEvent } from '../@core/events/domain/events/in
         'ISpotReservationRepository',
         'IUnitOfWork',
         PaymentGateway,
+        ApplicationService,
+      ],
+    },
+    {
+      provide: WaitingListService,
+      useFactory: (waitingListRepo, customerRepo, eventRepo, appService) =>
+        new WaitingListService(
+          waitingListRepo,
+          customerRepo,
+          eventRepo,
+          appService,
+        ),
+      inject: [
+        'IWaitingListRepository',
+        'ICustomerRepository',
+        'IEventRepository',
+        ApplicationService,
       ],
     },
     {
@@ -135,6 +170,26 @@ import { PartnerCreatedIntegrationEvent } from '../@core/events/domain/events/in
       ) => new MyHandlerHandler(partnerRepo, domainEventManager),
       inject: ['IPartnerRepository', DomainEventManager],
     },
+    {
+      provide: ReleaseSpotHandler,
+      useFactory: (eventRepo, spotReservationRepo, domainEventManager) =>
+        new ReleaseSpotHandler(
+          eventRepo,
+          spotReservationRepo,
+          domainEventManager,
+        ),
+      inject: [
+        'IEventRepository',
+        'ISpotReservationRepository',
+        DomainEventManager,
+      ],
+    },
+    {
+      provide: NotifyWaitingListHandler,
+      useFactory: (waitingListRepo, domainEventManager) =>
+        new NotifyWaitingListHandler(waitingListRepo, domainEventManager),
+      inject: ['IWaitingListRepository', DomainEventManager],
+    },
   ],
   controllers: [
     PartnersController,
@@ -143,6 +198,7 @@ import { PartnerCreatedIntegrationEvent } from '../@core/events/domain/events/in
     EventSectionsController,
     EventSpotsController,
     OrdersController,
+    WaitingListController,
   ],
 })
 export class EventsModule implements OnModuleInit {
@@ -163,6 +219,30 @@ export class EventsModule implements OnModuleInit {
         await handler.handle(event);
       });
     });
+    ReleaseSpotHandler.listensTo().forEach((eventName: string) => {
+      this.domainEventManager.register(eventName, async (event) => {
+        const handler: ReleaseSpotHandler = await this.moduleRef.resolve(
+          ReleaseSpotHandler,
+        );
+        await handler.handle(event);
+      });
+    });
+    NotifyWaitingListHandler.listensTo().forEach((eventName: string) => {
+      this.domainEventManager.register(eventName, async (event) => {
+        const handler: NotifyWaitingListHandler = await this.moduleRef.resolve(
+          NotifyWaitingListHandler,
+        );
+        await handler.handle(event);
+      });
+    });
+    this.domainEventManager.registerForIntegrationEvent(
+      SpotOfferedToWaitingCustomer.name,
+      async (event) => {
+        const integrationEvent =
+          new SpotOfferedToWaitingCustomerIntegrationEvent(event);
+        await this.integrationEventsQueue.add(integrationEvent);
+      },
+    );
     this.domainEventManager.registerForIntegrationEvent(
       PartnerCreated.name,
       async (event) => {
